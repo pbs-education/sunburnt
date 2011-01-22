@@ -443,7 +443,7 @@ class SolrSearch(object):
         for option_module in self.option_modules:
             options.update(getattr(self, option_module).options())
         if 'q' not in options:
-            options['q'] = '*' # search everything
+            options['q.alt'] = '*:*' # search everything
         return options
 
     def params(self):
@@ -455,6 +455,23 @@ class SolrSearch(object):
             result.result.docs = [constructor(**d) for d in result.result.docs]
         return result
 
+    def __getslice__(self, start, end):
+        if start > end:
+            raise AttributeError('Cannot do a backwards slice.')
+        if start < 0:
+            raise AttributeError('Cannot do a negative slice.')
+        newself = self.clone()
+        newself.paginator.update(start, (end - start))
+        return newself
+
+    @property
+    def response(self):
+        if not hasattr(self, '_response'):
+            self._response = self.execute()
+        return self._response
+
+    def __len__(self):
+        return self.response.result.numFound
 
 class Options(object):
     def clone(self):

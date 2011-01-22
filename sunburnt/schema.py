@@ -433,6 +433,9 @@ class SolrResults(object):
     def __getitem__(self, key):
         return self.result.docs[key]
 
+    def __iter__(self):
+        for result in self.results.doc:
+            yield result
 
 class SolrResult(object):
     def __init__(self, node):
