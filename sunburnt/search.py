@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 import collections, copy, operator, re
 
-from .schema import SolrError, SolrUnicodeField, SolrBooleanField
+from .schema import SolrError, SolrUnicodeField, SolrBooleanField, solr_date
 from .strings import WildcardString
 
 
@@ -341,7 +341,7 @@ class LuceneQuery(object):
 
 
 class SolrSearch(object):
-    option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier')
+    option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier', 'faceter_date')
     def __init__(self, interface, original=None):
         self.interface = interface
         self.schema = interface.schema
@@ -352,6 +352,7 @@ class SolrSearch(object):
             self.more_like_this = MoreLikeThisOptions(self.schema)
             self.highlighter = HighlightOptions(self.schema)
             self.faceter = FacetOptions(self.schema)
+            self.faceter_date = FacetDateOptions(self.schema)
             self.sorter = SortOptions(self.schema)
             self.facet_querier = FacetQueryOptions(self.schema)
         else:
@@ -404,6 +405,11 @@ class SolrSearch(object):
     def facet_query(self, *args, **kwargs):
         newself = self.clone()
         newself.facet_querier.update(self.Q(*args, **kwargs))
+        return newself
+
+    def facet_date(self, field, **kwargs):
+        newself = self.clone()
+        newself.faceter_date.update(field, **kwargs)
         return newself
 
     def highlight(self, fields=None, **kwargs):
@@ -511,7 +517,7 @@ class Options(object):
     def options(self):
         opts = {}
         if self.fields:
-            opts[self.option_name] = True
+            opts[self.option_name.split('.')[0]] = True
             fields = [field for field in self.fields if field]
             self.field_names_in_opts(opts, fields)
         for field_name, field_opts in self.fields.items():
@@ -548,6 +554,25 @@ class FacetOptions(Options):
         if fields:
             opts["facet.field"] = sorted(fields)
 
+class FacetDateOptions(Options):
+    option_name = "facet.date"
+    opts = {"start":solr_date,
+            "end":solr_date,
+            "gap":unicode,
+            "hardend":bool,
+            "other":["before", "after", "between", "none", "all"],
+            }
+
+    def __init__(self, schema, original=None):
+        self.schema = schema
+        if original is None:
+            self.fields = collections.defaultdict(dict)
+        else:
+            self.fields = copy.copy(original.fields)
+
+    def field_names_in_opts(self, opts, fields):
+        if fields:
+            opts["facet.date"] = sorted(fields)
 
 class HighlightOptions(Options):
     option_name = "hl"
