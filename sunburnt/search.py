@@ -262,7 +262,7 @@ class LuceneQuery(object):
         q._and = False
         q._pow = value
         return q
-        
+
     def add(self, args, kwargs, terms_or_phrases=None):
         self.normalized = False
         _args = []
@@ -408,6 +408,9 @@ class SolrSearch(object):
         return newself
 
     def facet_date(self, field, **kwargs):
+        missing_keys = set(['start', 'end', 'gap']).difference(kwargs.keys())
+        if missing_keys:
+            raise AttributeError('Missing required parameters: %s' % ', '.join(missing_keys))
         newself = self.clone()
         newself.faceter_date.update(field, **kwargs)
         return newself
