@@ -3,6 +3,7 @@ from __future__ import absolute_import
 import datetime
 import math
 import operator
+import re
 import warnings
 
 import lxml.builder
@@ -83,19 +84,18 @@ class SolrField(object):
         self.stored = node.attrib.get("stored") == "true"
         self.dynamic = dynamic
         if dynamic:
-            if self.name.startswith("*"):
-                self.wildcard_at_start = True
-            elif self.name.endswith("*"):
-                self.wildcard_at_start = False
-            else:
+            if not (self.name.startswith("*") or self.name.endswith("*")):
                 raise SolrError("Dynamic fields must have * at start or end of name")
+            self.dynamic_regex = re.compile('^%s$' % self.name.replace('*', '(.*)'))
+        else:
+            self.dynamic_regex = re.compile('^(.*)$')
 
     def match(self, name):
         if self.dynamic:
-            if self.wildcard_at_start:
-                return name.endswith(self.name[1:])
-            else:
-                return name.startswith(self.name[:-1])
+            return bool(self.dynamic_regex.match(name))
+
+    def static_name(self, name):
+        return self.dynamic_regex.match(name).group(1)
 
     def serialize(self, value):
         if hasattr(value, "__iter__"):
