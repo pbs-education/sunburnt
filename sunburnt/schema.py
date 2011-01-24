@@ -78,6 +78,7 @@ class solr_date(object):
 class SolrField(object):
     def __init__(self, node, dynamic=False):
         self.name = node.attrib["name"]
+        self._display_name = node.attrib.get("display_name", self.name)
         self.multi_valued = node.attrib.get("multiValued") == "true"
         self.required = node.attrib.get("required") == "true"
         self.indexed = node.attrib.get("indexed", "true") == "true"
@@ -87,15 +88,15 @@ class SolrField(object):
             if not (self.name.startswith("*") or self.name.endswith("*")):
                 raise SolrError("Dynamic fields must have * at start or end of name")
             self.dynamic_regex = re.compile('^%s$' % self.name.replace('*', '(.*)'))
-        else:
-            self.dynamic_regex = re.compile('^(.*)$')
 
     def match(self, name):
         if self.dynamic:
             return bool(self.dynamic_regex.match(name))
 
-    def static_name(self, name):
-        return self.dynamic_regex.match(name).group(1)
+    def display_name(self, name):
+        if self.dynamic:
+            return self._display_name.replace('*', self.dynamic_regex.match(name).group(1))
+        return self._display_name
 
     def serialize(self, value):
         if hasattr(value, "__iter__"):
@@ -204,6 +205,7 @@ class SolrSchema(object):
     def __init__(self, f):
         """initialize a schema object from a
         filename or file-like object."""
+        self.field_matches = {}
         self.fields, self.dynamic_fields, self.default_field_name, self.unique_key \
             = self.schema_parse(f)
         self.default_field = self.fields[self.default_field_name] \
@@ -269,11 +271,13 @@ class SolrSchema(object):
                 return field
 
     def match_field(self, name):
-        try:
-            return self.fields[name]
-        except KeyError:
-            field = self.match_dynamic_field(name)
-        return field
+        if name not in self.field_matches:
+            try:
+                return self.fields[name]
+            except KeyError:
+                field = self.match_dynamic_field(name)
+            self.field_matches[name] = field
+        return self.field_matches[name]
 
     def serialize_value(self, k, v):
         field = self.match_field(k)
@@ -401,7 +405,7 @@ class SolrResults(object):
     def __init__(self, schema, xmlmsg):
         self.schema = schema
         doc = lxml.etree.fromstring(xmlmsg)
-        details = dict(value_from_node(n) for n in
+        details = dict(value_from_node(n, schema) for n in
                        doc.xpath("/response/lst[@name!='moreLikeThis']"))
         details['responseHeader'] = dict(details['responseHeader'])
         for attr in ["QTime", "params", "status"]:
@@ -409,13 +413,13 @@ class SolrResults(object):
         if self.status != 0:
             raise ValueError("Response indicates an error")
         result_node = doc.xpath("/response/result")[0]
-        self.result = SolrResult(result_node)
+        self.result = SolrResult(schema, result_node)
         self.facet_counts = SolrFacetCounts.from_response(details)
         self.highlighting = dict((k, dict(v))
                                  for k, v in details.get("highlighting", ()))
         more_like_these_nodes = \
             doc.xpath("/response/lst[@name='moreLikeThis']/result")
-        more_like_these_results = [SolrResult(node)
+        more_like_these_results = [SolrResult(schema, node)
                                   for node in more_like_these_nodes]
         self.more_like_these = dict((n.name, n)
                                          for n in more_like_these_results)
@@ -438,11 +442,11 @@ class SolrResults(object):
             yield result
 
 class SolrResult(object):
-    def __init__(self, node):
+    def __init__(self, schema, node):
         self.name = node.attrib['name']
         self.numFound = int(node.attrib['numFound'])
         self.start = int(node.attrib['start'])
-        self.docs = [value_from_node(n) for n in node.xpath("doc")]
+        self.docs = [value_from_node(n, schema) for n in node.xpath("doc")]
 
     def __str__(self):
         return "%(numFound)s results found, starting at #%(start)s\n\n" % self.__dict__ + str(self.docs)
@@ -497,12 +501,12 @@ def get_attribute_or_callable(o, name):
         a = None
     return a
 
-def value_from_node(node):
+def value_from_node(node, schema=None):
     name = node.attrib.get('name')
     if node.tag in ('lst', 'arr'):
-        value = [value_from_node(n) for n in node.getchildren()]
+        value = [value_from_node(n, schema) for n in node.getchildren()]
     if node.tag in 'doc':
-        value = dict(value_from_node(n) for n in node.getchildren())
+        value = dict(value_from_node(n, schema) for n in node.getchildren())
     elif node.tag == 'null':
         value = None
     elif node.tag in ('str', 'byte'):
@@ -518,6 +522,10 @@ def value_from_node(node):
     elif node.tag == 'date':
         value = solr_date(node.text)
     if name is not None:
+        if schema is not None:
+            field = schema.match_field(name)
+            if field:
+                name = field.display_name(name)
         return name, value
     else:
         return value
