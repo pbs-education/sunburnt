@@ -17,10 +17,11 @@ class LuceneQuery(object):
         "rangeexc": "{%s TO %s}",
         "range": "[%s TO %s]",
     }
-    def __init__(self, schema, option_flag=None, original=None):
+    def __init__(self, schema, option_flag=None, original=None, dismax=False):
         self.schema = schema
         self.normalized = False
         if original is None:
+            self.dismax = dismax
             self.option_flag = option_flag
             self.terms = collections.defaultdict(set)
             self.phrases = collections.defaultdict(set)
@@ -30,6 +31,7 @@ class LuceneQuery(object):
             self._or = self._not = self._pow = False
             self.boosts = []
         else:
+            self.dismax = original.dismax
             self.option_flag = original.option_flag
             self.terms = copy.copy(original.terms)
             self.phrases = copy.copy(original.phrases)
@@ -85,7 +87,8 @@ class LuceneQuery(object):
             else:
                 field = self.schema.default_field
             if isinstance(field, SolrUnicodeField):
-                value_set = [value.escape_for_lqs_term() for value in value_set]
+                if not self.dismax:
+                    value_set = [value.escape_for_lqs_term() for value in value_set]
             if name:
                 s += [u'%s:%s' % (name, value) for value in sorted(value_set)]
             else:
@@ -342,11 +345,11 @@ class LuceneQuery(object):
 
 class SolrSearch(object):
     option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier', 'faceter_date')
-    def __init__(self, interface, original=None):
+    def __init__(self, interface, original=None, dismax=False):
         self.interface = interface
         self.schema = interface.schema
         if original is None:
-            self.query_obj = LuceneQuery(self.schema, 'q')
+            self.query_obj = LuceneQuery(self.schema, 'q', dismax=dismax)
             self.filter_obj = LuceneQuery(self.schema, 'fq')
             self.paginator = PaginateOptions(self.schema)
             self.more_like_this = MoreLikeThisOptions(self.schema)
