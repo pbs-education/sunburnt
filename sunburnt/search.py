@@ -344,7 +344,7 @@ class LuceneQuery(object):
 
 
 class SolrSearch(object):
-    option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier', 'faceter_date')
+    option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier', 'faceter_date', 'spellchecker')
     def __init__(self, interface, original=None, dismax=False):
         self.interface = interface
         self.schema = interface.schema
@@ -357,6 +357,7 @@ class SolrSearch(object):
             self.faceter = FacetOptions(self.schema)
             self.faceter_date = FacetDateOptions(self.schema)
             self.sorter = SortOptions(self.schema)
+            self.spellchecker = SpellcheckerOptions(self.schema)
             self.facet_querier = FacetQueryOptions(self.schema)
         else:
             for opt in self.option_modules:
@@ -421,6 +422,11 @@ class SolrSearch(object):
     def highlight(self, fields=None, **kwargs):
         newself = self.clone()
         newself.highlighter.update(fields, **kwargs)
+        return newself
+
+    def spellcheck(self, **kwargs):
+        newself = self.clone()
+        newself.spellchecker.update(**kwargs)
         return newself
 
     def mlt(self, fields, query_fields=None, **kwargs):
@@ -579,6 +585,55 @@ class FacetDateOptions(Options):
     def field_names_in_opts(self, opts, fields):
         if fields:
             opts["facet.date"] = sorted(fields)
+
+
+class SpellcheckerOptions(Options):
+    option_name = 'spellcheck'
+    opts = {
+            'q': unicode,
+            'build': bool,
+            'reload': bool,
+            'dictionary': unicode,
+            'count': int,
+            'onlyMorePopular': bool,
+            'extendedResults': bool,
+            }
+
+    def __init__(self, schema, original=None):
+        self.schema = schema
+        if original is None:
+            self.fields = collections.defaultdict(dict)
+            self.kwargs = {}
+            self.enabled = False
+        else:
+            self.fields = copy.copy(original.fields)
+            self.kwargs = copy.copy(original.kwargs)
+            self.enabled = original.enabled
+
+    def update(self, **kwargs):
+        self.enabled = True
+        self.kwargs.update(kwargs)
+
+    def options(self):
+        opts = {}
+        if self.enabled:
+            opts['spellcheck'] = True
+
+            for k, v in self.kwargs.items():
+                if k not in self.opts:
+                    raise SolrError("No such option for %s: %s" % (self.option_name, k))
+                opt_type = self.opts[k]
+                try:
+                    if isinstance(opt_type, (list, tuple)):
+                        assert v in opt_type
+                    elif isinstance(opt_type, type):
+                        v = opt_type(v)
+                    else:
+                        v = opt_type(self, v)
+                except:
+                    raise SolrError("Invalid value for %s option %s: %s" % (self.option_name, k, v))
+                opts['spellcheck.%s' % k] = v
+        return opts
 
 class HighlightOptions(Options):
     option_name = "hl"

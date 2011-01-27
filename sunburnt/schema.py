@@ -406,6 +406,27 @@ class SolrFacetCounts(object):
         facet_counts_dict = dict(response.get("facet_counts", {}))
         return SolrFacetCounts(**facet_counts_dict)
 
+class SolrSpellingSugestions(object):
+    def __init__(self, **kwargs):
+        data = dict(kwargs.get("suggestions", {}))
+        self.spelled_correctly = data.pop("correctlySpelled", "false") == "true"
+        self.suggestions = {}
+        for word, info in data.items():
+            if isinstance(info, (list, tuple)):
+                suggestions = dict(info)
+                options = []
+                for option in suggestions.get('suggestion', []):
+                    if not isinstance(option, (list, tuple)):
+                        options.append({'word': option, 'frequency': None})
+                    else:
+                        option = dict(option)
+                        options.append({'word': option.get('word'), 'frequency': option.get('freq')})
+                self.suggestions[word] = options
+
+    @classmethod
+    def from_response(cls, response):
+        spelling_dict = dict(response.get("spellcheck", {}))
+        return SolrSpellingSugestions(**spelling_dict)
 
 class SolrResults(object):
     def __init__(self, schema, xmlmsg):
@@ -421,6 +442,7 @@ class SolrResults(object):
         result_node = doc.xpath("/response/result")[0]
         self.result = SolrResult(schema, result_node)
         self.facet_counts = SolrFacetCounts.from_response(details)
+        self.spelling = SolrSpellingSugestions.from_response(details)
         self.highlighting = dict((k, dict(v))
                                  for k, v in details.get("highlighting", ()))
         more_like_these_nodes = \
