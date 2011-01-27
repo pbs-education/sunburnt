@@ -393,7 +393,13 @@ class SolrFacetCounts(object):
     def __init__(self, **kwargs):
         for member in self.members:
             setattr(self, member, kwargs.get(member, ()))
-        self.facet_fields = dict(self.facet_fields)
+        facet_fields = {}
+        for k, v in self.facet_fields:
+            try:
+                facet_fields[k] += v
+            except:
+                facet_fields[k] = v
+        self.facet_fields = facet_fields
 
     @classmethod
     def from_response(cls, response):
@@ -506,7 +512,13 @@ def value_from_node(node, schema=None):
     if node.tag in ('lst', 'arr'):
         value = [value_from_node(n, schema) for n in node.getchildren()]
     if node.tag in 'doc':
-        value = dict(value_from_node(n, schema) for n in node.getchildren())
+        value = {}
+        for n in node.getchildren():
+            k, v = value_from_node(n, schema)
+            if k not in value:
+                value[k] = v
+            else:
+                value[k] = value[k] + v
     elif node.tag == 'null':
         value = None
     elif node.tag in ('str', 'byte'):
