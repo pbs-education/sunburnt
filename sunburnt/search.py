@@ -609,7 +609,7 @@ class SpellcheckerOptions(Options):
             self.fields = copy.copy(original.fields)
             self.kwargs = copy.copy(original.kwargs)
             self.enabled = original.enabled
-
+    
     def update(self, **kwargs):
         self.enabled = True
         self.kwargs.update(kwargs)

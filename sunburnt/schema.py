@@ -409,7 +409,7 @@ class SolrFacetCounts(object):
 class SolrSpellingSugestions(object):
     def __init__(self, **kwargs):
         data = dict(kwargs.get("suggestions", {}))
-        self.spelled_correctly = data.pop("correctlySpelled", "false") == "true"
+        self.spelled_correctly = data.pop("correctlySpelled", None)
         self.suggestions = {}
         for word, info in data.items():
             if isinstance(info, (list, tuple)):
