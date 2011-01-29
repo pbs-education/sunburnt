@@ -77,8 +77,8 @@ class solr_date(object):
 
 class SolrField(object):
     def __init__(self, node, dynamic=False):
+        display_name_regex = node.attrib.get("display_name_regex", None)
         self.name = node.attrib["name"]
-        self._display_name = node.attrib.get("display_name", self.name)
         self.multi_valued = node.attrib.get("multiValued") == "true"
         self.required = node.attrib.get("required") == "true"
         self.indexed = node.attrib.get("indexed", "true") == "true"
@@ -88,6 +88,10 @@ class SolrField(object):
             if not (self.name.startswith("*") or self.name.endswith("*")):
                 raise SolrError("Dynamic fields must have * at start or end of name")
             self.dynamic_regex = re.compile('^%s$' % self.name.replace('*', '(.*)'))
+            if display_name_regex:
+                self.display_name_regex = re.compile(display_name_regex)
+            else:
+                self.display_name_regex = re.compile('%s' % self.name.replace('*', '(.*)'))
 
     def match(self, name):
         if self.dynamic:
@@ -95,8 +99,8 @@ class SolrField(object):
 
     def display_name(self, name):
         if self.dynamic:
-            return self._display_name.replace('*', self.dynamic_regex.match(name).group(1))
-        return self._display_name
+            return self.display_name_regex.match(name).group(1)
+        return self.name
 
     def serialize(self, value):
         if hasattr(value, "__iter__"):
