@@ -17,7 +17,7 @@ class LuceneQuery(object):
         "rangeexc": "{%s TO %s}",
         "range": "[%s TO %s]",
     }
-    def __init__(self, schema, option_flag=None, original=None, dismax=False):
+    def __init__(self, schema, option_flag=None, original=None, dismax=False, tag=None):
         self.schema = schema
         self.normalized = False
         if original is None:
@@ -30,6 +30,7 @@ class LuceneQuery(object):
             self._and = True
             self._or = self._not = self._pow = False
             self.boosts = []
+            self.tag = tag
         else:
             self.dismax = original.dismax
             self.option_flag = original.option_flag
@@ -42,6 +43,7 @@ class LuceneQuery(object):
             self._not = original._not
             self._pow = original._pow
             self.boosts = copy.copy(original.boosts)
+            self.tag = original.tag
 
     def clone(self):
         return LuceneQuery(self.schema, original=self)
@@ -194,6 +196,10 @@ class LuceneQuery(object):
             newself = newself | (newself & reduce(operator.or_, boost_queries))
             return newself.__unicode__(level=level)
         else:
+            tag = ''
+            if self.tag:
+                tag = u'{!tag=%s}' % self.tag
+
             u = [s for s in [self.serialize_term_queries(self.terms),
                              self.serialize_term_queries(self.phrases),
                              self.serialize_range_queries()]
@@ -205,18 +211,18 @@ class LuceneQuery(object):
                 else:
                     u.append(u"%s"%q.__unicode__(level=level+1, op=op_))
             if self._and:
-                return u' AND '.join(u)
+                return tag + u' AND '.join(u)
             elif self._or:
-                return u' OR '.join(u)
+                return tag + u' OR '.join(u)
             elif self._not:
                 assert len(u) == 1
                 if level == 0 or (level == 1 and op == "AND"):
-                    return u'NOT %s'%u[0]
+                    return tag + u'NOT %s'%u[0]
                 else:
-                    return u'(*:* AND NOT %s)'%u[0]
+                    return tag + u'(*:* AND NOT %s)'%u[0]
             elif self._pow is not False:
                 assert len(u) == 1
-                return u"%s^%s"%(u[0], self._pow)
+                return tag + u"%s^%s"%(u[0], self._pow)
             else:
                 raise ValueError
 
@@ -359,7 +365,9 @@ class SolrSearch(object):
             self.sorter = SortOptions(self.schema)
             self.spellchecker = SpellcheckerOptions(self.schema)
             self.facet_querier = FacetQueryOptions(self.schema)
+            self.tags = {}
         else:
+            self.tags = original.tags
             for opt in self.option_modules:
                 setattr(self, opt, getattr(original, opt).clone())
 
@@ -404,6 +412,14 @@ class SolrSearch(object):
     def facet_by(self, field, **kwargs):
         newself = self.clone()
         newself.faceter.update(field, **kwargs)
+        return newself
+
+    def facet_filter(self, field, filter_obj):
+        newself = self.clone()
+        if field not in self.tags:
+            self.tags[field] = 't%s' % len(self.tags.keys())
+        filter_obj.tag = self.tags[field]
+        newself.faceter.filter(field, filter_obj)
         return newself
 
     def facet_query(self, *args, **kwargs):
@@ -459,7 +475,14 @@ class SolrSearch(object):
     def options(self):
         options = {}
         for option_module in self.option_modules:
-            options.update(getattr(self, option_module).options())
+            for key, value in getattr(self, option_module).options().items():
+                if isinstance(value, basestring):
+                    value = [value]
+
+                if key in options:
+                    options[key] += value
+                else:
+                    options[key] = value
         if 'q' not in options:
             options['q.alt'] = '*:*' # search everything
         return options
@@ -559,12 +582,32 @@ class FacetOptions(Options):
         self.schema = schema
         if original is None:
             self.fields = collections.defaultdict(dict)
+            self.filters = {}
         else:
             self.fields = copy.copy(original.fields)
+            self.filters = copy.copy(original.filters)
+
+    def filter(self, field, filter_obj):
+        if field not in self.fields:
+            raise SolrError('Cannot facet_filter an un-faceted field: `%s`' % field)
+        self.filters[field] = filter_obj
 
     def field_names_in_opts(self, opts, fields):
         if fields:
-            opts["facet.field"] = sorted(fields)
+            facet_fields = []
+            for field in sorted(fields):
+                filter_obj = self.filters.get(field, None)
+                if filter_obj:
+                    facet_fields.append('{!ex=%s}%s' % (filter_obj.tag, field))
+                else:
+                    facet_fields.append(field)
+            opts['facet.field'] = facet_fields
+
+        if self.filters:
+            filter_fields = []
+            for field, filter_obj in self.filters.items():
+                filter_fields.append(unicode(filter_obj))
+            opts['fq'] = filter_fields
 
 class FacetDateOptions(Options):
     option_name = "facet.date"
