@@ -17,11 +17,11 @@ class LuceneQuery(object):
         "rangeexc": "{%s TO %s}",
         "range": "[%s TO %s]",
     }
-    def __init__(self, schema, option_flag=None, original=None, dismax=False, tag=None):
+    def __init__(self, schema, option_flag=None, original=None, escape=True):
         self.schema = schema
         self.normalized = False
         if original is None:
-            self.dismax = dismax
+            self.escape = escape
             self.option_flag = option_flag
             self.terms = collections.defaultdict(set)
             self.phrases = collections.defaultdict(set)
@@ -30,9 +30,9 @@ class LuceneQuery(object):
             self._and = True
             self._or = self._not = self._pow = False
             self.boosts = []
-            self.tag = tag
+            self.local_params = {}
         else:
-            self.dismax = original.dismax
+            self.escape = original.escape
             self.option_flag = original.option_flag
             self.terms = copy.copy(original.terms)
             self.phrases = copy.copy(original.phrases)
@@ -43,7 +43,7 @@ class LuceneQuery(object):
             self._not = original._not
             self._pow = original._pow
             self.boosts = copy.copy(original.boosts)
-            self.tag = original.tag
+            self.local_params = copy.copy(original.local_params)
 
     def clone(self):
         return LuceneQuery(self.schema, original=self)
@@ -89,7 +89,7 @@ class LuceneQuery(object):
             else:
                 field = self.schema.default_field
             if isinstance(field, SolrUnicodeField):
-                if not self.dismax:
+                if self.escape:
                     value_set = [value.escape_for_lqs_term() for value in value_set]
             if name:
                 s += [u'%s:%s' % (name, value) for value in sorted(value_set)]
@@ -196,9 +196,9 @@ class LuceneQuery(object):
             newself = newself | (newself & reduce(operator.or_, boost_queries))
             return newself.__unicode__(level=level)
         else:
-            tag = ''
-            if self.tag:
-                tag = u'{!tag=%s}' % self.tag
+            local_params = ''
+            if self.local_params:
+                local_params = u'{!%s}' % u' '.join([ u'='.join(param) for param in self.local_params.items() ])
 
             u = [s for s in [self.serialize_term_queries(self.terms),
                              self.serialize_term_queries(self.phrases),
@@ -211,18 +211,18 @@ class LuceneQuery(object):
                 else:
                     u.append(u"%s"%q.__unicode__(level=level+1, op=op_))
             if self._and:
-                return tag + u' AND '.join(u)
+                return local_params + u' AND '.join(u)
             elif self._or:
-                return tag + u' OR '.join(u)
+                return local_params + u' OR '.join(u)
             elif self._not:
                 assert len(u) == 1
                 if level == 0 or (level == 1 and op == "AND"):
-                    return tag + u'NOT %s'%u[0]
+                    return local_params + u'NOT %s'%u[0]
                 else:
-                    return tag + u'(*:* AND NOT %s)'%u[0]
+                    return local_params + u'(*:* AND NOT %s)'%u[0]
             elif self._pow is not False:
                 assert len(u) == 1
-                return tag + u"%s^%s"%(u[0], self._pow)
+                return local_params + u"%s^%s"%(u[0], self._pow)
             else:
                 raise ValueError
 
@@ -351,11 +351,14 @@ class LuceneQuery(object):
 
 class SolrSearch(object):
     option_modules = ('query_obj', 'filter_obj', 'paginator', 'more_like_this', 'highlighter', 'faceter', 'sorter', 'facet_querier', 'faceter_date', 'spellchecker')
-    def __init__(self, interface, original=None, dismax=False):
+    def __init__(self, interface, original=None, defType=None):
         self.interface = interface
         self.schema = interface.schema
+        if defType not in [None, 'dismax', 'lucene']:
+            raise SolrError('Invalid defType')
+
         if original is None:
-            self.query_obj = LuceneQuery(self.schema, 'q', dismax=dismax)
+            self.query_obj = LuceneQuery(self.schema, 'q', escape=defType != 'dismax')
             self.filter_obj = LuceneQuery(self.schema, 'fq')
             self.paginator = PaginateOptions(self.schema)
             self.more_like_this = MoreLikeThisOptions(self.schema)
@@ -366,8 +369,10 @@ class SolrSearch(object):
             self.spellchecker = SpellcheckerOptions(self.schema)
             self.facet_querier = FacetQueryOptions(self.schema)
             self.tags = {}
+            self.defType = defType
         else:
             self.tags = original.tags
+            self.defType = original.defType
             for opt in self.option_modules:
                 setattr(self, opt, getattr(original, opt).clone())
 
@@ -418,7 +423,7 @@ class SolrSearch(object):
         newself = self.clone()
         if field not in self.tags:
             self.tags[field] = 't%s' % len(self.tags.keys())
-        filter_obj.tag = self.tags[field]
+        filter_obj.local_params['tag'] = self.tags[field]
         newself.faceter.filter(field, filter_obj)
         return newself
 
@@ -485,6 +490,8 @@ class SolrSearch(object):
                     options[key] = value
         if 'q' not in options:
             options['q.alt'] = '*:*' # search everything
+        if self.defType:
+            options['defType'] = self.defType
         return options
 
     def params(self):
@@ -598,7 +605,7 @@ class FacetOptions(Options):
             for field in sorted(fields):
                 filter_obj = self.filters.get(field, None)
                 if filter_obj:
-                    facet_fields.append('{!ex=%s}%s' % (filter_obj.tag, field))
+                    facet_fields.append('{!ex=%s}%s' % (filter_obj.local_params['tag'], field))
                 else:
                     facet_fields.append(field)
             opts['facet.field'] = facet_fields
