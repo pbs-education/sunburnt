@@ -132,6 +132,7 @@ class LuceneQuery(object):
         _terms = self.terms
         _phrases = self.phrases
         _ranges = self.ranges
+        _local_params = self.local_params
         for s in self.subqueries:
             _s, changed = s.normalize()
             if not _s or changed:
@@ -143,6 +144,7 @@ class LuceneQuery(object):
                     _phrases = self.merge_term_dicts(_phrases, _s.phrases)
                     _ranges = _ranges.union(_s.ranges)
                     _subqueries.extend(_s.subqueries)
+                    _local_params.update(_s.local_params)
                 else:
                     _subqueries.append(_s)
         if mutated:
@@ -151,6 +153,7 @@ class LuceneQuery(object):
             newself.phrases = _phrases
             newself.ranges = _ranges
             newself.subqueries = _subqueries
+            newself.local_params = _local_params
             self = newself
 
         if self._not:
@@ -198,7 +201,7 @@ class LuceneQuery(object):
         else:
             local_params = ''
             if self.local_params:
-                local_params = u'{!%s}' % u' '.join([ u'='.join(param) for param in self.local_params.items() ])
+                local_params = u'{!%s}' % u' '.join([ y is not None and u'='.join([x,y]) or x for x, y in self.local_params.items() ])
 
             u = [s for s in [self.serialize_term_queries(self.terms),
                              self.serialize_term_queries(self.phrases),
