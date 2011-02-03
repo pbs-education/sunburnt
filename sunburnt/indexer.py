@@ -104,8 +104,10 @@ class BaseIndexer(object):
     def get_records(self):
         raise NotImplementedError
 
-    def add(self, record, commit=True):
-        self.interface.add([self.transform(record)])
+    def add(self, records, commit=True):
+        if not isinstance(records, (list, tuple)):
+            records = [records]
+        self.interface.add([ self.transform(x) for x in records ])
         if commit:
             self.interface.commit()
 

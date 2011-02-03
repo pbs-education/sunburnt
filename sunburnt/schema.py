@@ -470,7 +470,7 @@ class SolrResults(object):
         return self.result.docs[key]
 
     def __iter__(self):
-        for result in self.results.doc:
+        for result in self.result.docs:
             yield result
 
 class SolrResult(object):
