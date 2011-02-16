@@ -419,14 +419,16 @@ class SolrSearch(object):
 
     def facet_by(self, field, **kwargs):
         newself = self.clone()
+        newself.faceter.tag = kwargs.pop('tag', None)
         newself.faceter.update(field, **kwargs)
         return newself
 
-    def facet_filter(self, field, filter_obj):
+    def facet_filter(self, field, filter_obj, tag=None):
         newself = self.clone()
-        if field not in self.tags:
-            self.tags[field] = 't%s' % len(self.tags.keys())
-        filter_obj.local_params['tag'] = self.tags[field]
+        tag = tag or field
+        if tag not in self.tags:
+            self.tags[tag] = 't%s' % len(self.tags.keys())
+        filter_obj.local_params['tag'] = self.tags[tag]
         newself.faceter.filter(field, filter_obj)
         return newself
 
@@ -588,14 +590,16 @@ class FacetOptions(Options):
             "enum.cache.minDf":int,
             }
 
-    def __init__(self, schema, original=None):
+    def __init__(self, schema, original=None, tag=None):
         self.schema = schema
         if original is None:
             self.fields = collections.defaultdict(dict)
             self.filters = {}
+            self.tag = tag
         else:
             self.fields = copy.copy(original.fields)
             self.filters = copy.copy(original.filters)
+            self.tag = original.tag
 
     def filter(self, field, filter_obj):
         if field not in self.fields:
@@ -609,6 +613,8 @@ class FacetOptions(Options):
                 filter_obj = self.filters.get(field, None)
                 if filter_obj:
                     facet_fields.append('{!ex=%s}%s' % (filter_obj.local_params['tag'], field))
+                elif self.tag:
+                    facet_fields.append('{!ex=%s}%s' % (self.tag, field))
                 else:
                     facet_fields.append(field)
             opts['facet.field'] = facet_fields
