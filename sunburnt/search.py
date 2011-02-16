@@ -425,10 +425,13 @@ class SolrSearch(object):
 
     def facet_filter(self, field, filter_obj, tag=None):
         newself = self.clone()
-        tag = tag or field
-        if tag not in self.tags:
-            self.tags[tag] = 't%s' % len(self.tags.keys())
-        filter_obj.local_params['tag'] = self.tags[tag]
+        
+        if not tag:
+            if field not in self.tags:
+                tag = 't%s' % len(self.tags.keys())
+        if field not in self.tags:
+            self.tags[field] = tag
+        filter_obj.local_params['tag'] = tag
         newself.faceter.filter(field, filter_obj)
         return newself
 
