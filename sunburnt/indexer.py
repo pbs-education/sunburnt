@@ -92,7 +92,8 @@ class BaseIndexer(object):
             else:
                 if data:
                     for name, value in data:
-                        document[name] = value
+                        if value:
+                            document[name] = value
         return document
 
     def transform_solr_collection(self, record):
