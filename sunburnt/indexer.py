@@ -113,7 +113,6 @@ class BaseIndexer(object):
             self.interface.commit()
 
     def update(self):
-        print "Updating documents."
         updated = 0
         additions = []
         for record in self.get_records():
@@ -128,7 +127,6 @@ class BaseIndexer(object):
             additions = []
 
         self.interface.commit()
-        print "Updated %s documents." % updated
 
         q = LuceneQuery(self.interface.schema)
         delete_query = q.Q(solr_collection=self._meta['collection']) & q.Q(solr_update_timestamp__lt=self.solr_update_timestamp)
@@ -136,7 +134,6 @@ class BaseIndexer(object):
         delete_query.local_params['lucene'] = None
 
         deletions = self.interface.query(delete_query).execute()
-        print "Deleting %s documents" % deletions.result.numFound
 
         # The delete query does not accept local params and by default uses the lucene query parser
         delete_query.local_params = {}
