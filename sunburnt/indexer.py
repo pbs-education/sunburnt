@@ -108,32 +108,40 @@ class BaseIndexer(object):
     def add(self, records, commit=True):
         if not isinstance(records, (list, tuple)):
             records = [records]
-        self.interface.add([ self.transform(x) for x in records ])
+        self.interface.add([self.transform(x) for x in records])
         if commit:
             self.interface.commit()
 
     def update(self):
-        updated = 0
-        additions = []
+        record_count = 0
+        records = []
         for record in self.get_records():
-            if len(additions) > self._meta['documents']:
-                self.interface.add(additions)
-                additions = []
-            additions.append(self.transform(record))
-            updated += 1
+            if len(records) > self._meta['documents']:
+                self.interface.add(records)
+                records = []
+            records.append(self.transform(record))
+            record_count += 1
 
-        if len(additions):
-            self.interface.add(additions)
-            additions = []
+        if len(records):
+            self.interface.add(records)
 
         self.interface.commit()
+        return record_count
 
-        q = LuceneQuery(self.interface.schema)
-        delete_query = q.Q(solr_collection=self._meta['collection']) & q.Q(solr_update_timestamp__lt=self.solr_update_timestamp)
+
+    def regenerate(self):
+        print "Regenrating index for %s" % self._meta['collection']
+        record_count = self.update()
+        print "Added/updated %s documents" % record_count
+
+        print "Clearing out documents that didn't get updated"
+        base_query = LuceneQuery(self.interface.schema)
+        delete_query = base_query.Q(solr_collection=self._meta['collection']) & base_query.Q(solr_update_timestamp__lt=self.solr_update_timestamp)
         # We need to ensure that we are using the base Lucene Q parser and not something like the DisMax query parser.
         delete_query.local_params['lucene'] = None
 
         deletions = self.interface.query(delete_query).execute()
+        print "Deleting %s stale documents" % deletions.result.numFound
 
         # The delete query does not accept local params and by default uses the lucene query parser
         delete_query.local_params = {}
